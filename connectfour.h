@@ -40,6 +40,8 @@ private:
     std::unordered_map<uint64_t, int> openingBook;
 
     std::pair<int, int> negamax(const Board board, int depth, int alpha, int beta);
+    // Memory-Enhanced Test Driver - searches the tree with a minimal window to get a better score estimate for the next search
+    int MTD(int firstGuess, int depth);
     int getAIMove(int initDepth);
     int getHumanMove();
     void generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth);

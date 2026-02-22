@@ -5,6 +5,7 @@
 #include <vector>
 #include <iomanip>
 #include <fstream>
+#include <algorithm> // max
 
 // constructor for the ConnectFour class, initializes scores, nodes evaluated, transposition table, and history heuristic
 ConnectFour::ConnectFour() : scorePlayer1(0), scorePlayer2(0),
@@ -163,7 +164,8 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     is full and return nothing. */
     if (board.numMoves() == 42 || depth == 0)
     {
-        return {board.score(), -1};
+        // return {board.score(), -1};
+        return {0, -1}; // strong solver only evaluates wins and losses
     }
 
     // Initialize score and move
@@ -314,6 +316,37 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     return {bestScore, bestMove};
 };
 
+// searches a small window to make large alpha-beta cutoffs early into search
+int ConnectFour::MTD(int firstGuess, int depth)
+{
+    int guess = firstGuess;
+    int upperBound = 9999;
+    int lowerBound = -9999;
+
+    // loop until bounds converge
+    while (lowerBound < upperBound)
+    {
+        // zero window search around the current guess
+        int beta = std::max(guess, lowerBound + 1);
+
+        // gets score
+        guess = negamax(board, depth, beta - 1, beta).first;
+
+        // if fails high
+        if (beta > guess)
+        {
+            upperBound = guess;
+        }
+        // else fails low
+        else
+        {
+            lowerBound = guess;
+        }
+    }
+    // return exact score
+    return guess;
+}
+
 // gets the move of the AI
 int ConnectFour::getAIMove(int initDepth)
 {
@@ -336,10 +369,24 @@ int ConnectFour::getAIMove(int initDepth)
     int bestMove = 3;   // default move is the middle column
     nodesEvaluated = 0; // zero out the number of nodes each turn
     auto start = std::chrono::steady_clock::now();
+    int currentScore = 0;
 
     for (int depth = 1; depth <= initDepth; depth++)
     {
-        bestMove = negamax(board, depth, -9999, 9999).second;
+        // gets the best score each time and only looks for better moves
+        currentScore = MTD(bestMove, depth);
+        // bestMove = negamax(board, depth, -9999, 9999).second;
+
+        // gets best move from transposition table after converging on the best score
+        bool isMirror = false;
+        uint64_t hash = board.hash(isMirror);
+        int index = hash % transTableSize;
+
+        if (transpositionTable[index].boardHash == hash)
+        {
+            int ttMove = transpositionTable[index].bestMove;
+            bestMove = isMirror ? (6 - ttMove) : ttMove;
+        }
 
         // Gets the time for each search depth
         auto end = std::chrono::steady_clock::now();
@@ -398,12 +445,13 @@ void ConnectFour::startGame()
         {
             std::cout << "Player 1's Turn (X)\n";
             move = getHumanMove();
+            // move = getAIMove(34);
         }
         // Player 2's turn (Odd move count)
         else
         {
             std::cout << "AI is thinking (O)...\n";
-            move = getAIMove(20);
+            move = getAIMove(34);
             std::cout << "\nAI chose column: " << move << "\n";
         }
 
