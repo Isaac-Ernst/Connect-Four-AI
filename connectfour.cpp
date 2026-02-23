@@ -10,7 +10,7 @@
 // constructor for the ConnectFour class, initializes scores, nodes evaluated, transposition table, and history heuristic
 ConnectFour::ConnectFour() : scorePlayer1(0), scorePlayer2(0),
                              nodesEvaluated(0), ttCollisions(0), ttSize(0),
-                             transpositionTable(transTableSize, {0, 0, -1, -1, -1})
+                             transpositionTable(transTableSize, {0, 0, 0, 0, 0})
 {
     int defaultHistory[7] = {0, 10, 20, 30, 20, 10, 0};
 
@@ -64,7 +64,7 @@ void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth)
     std::cout << "This will take a long time. Do not close the terminal.\n";
 
     // Clear the transposition table so the engine runs fresh
-    transpositionTable.assign(transTableSize, {0, 0, -1, -1, -1});
+    transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
 
     // Start the recursive solver from an empty board
     Board emptyBoard;
@@ -180,16 +180,15 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     // int columnSearchOrder[7] = {3, 2, 4, 1, 5, 0, 6};
 
     // Order the moves to prioritize the most likely best moves first
-    std::vector<int> bestColumnSearchOrder;
-    bestColumnSearchOrder.reserve(7);
+    int bestColumnSearchOrder[7];
+    int numBestMoves = 0;
 
     if (ttBestMove != -1 && board.checkMove(ttBestMove))
     {
-        bestColumnSearchOrder.push_back(ttBestMove);
+        bestColumnSearchOrder[numBestMoves++] = ttBestMove;
     }
 
-    std::vector<int> remainingMoves;
-    remainingMoves.reserve(7);
+    int remainingMoves[7];
 
     int numRemaining = 0;
     int defaultOrder[7] = {3, 2, 4, 1, 5, 0, 6};
@@ -198,7 +197,7 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     {
         if (col != ttBestMove && board.checkMove(col))
         {
-            remainingMoves.push_back(col);
+            remainingMoves[numRemaining++] = col;
         }
     }
 
@@ -218,9 +217,9 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
         remainingMoves[j + 1] = keyMove;
     }
 
-    for (int col : remainingMoves)
+    for (int i = 0; i < numRemaining; ++i)
     {
-        bestColumnSearchOrder.push_back(col);
+        bestColumnSearchOrder[numBestMoves++] = remainingMoves[i];
     }
 
     // Principle Variation Search with alpha-beta pruning
@@ -228,8 +227,10 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
 
     /* Iterate through the moves and determine
     best move. */
-    for (int col : bestColumnSearchOrder)
+    for (int i = 0; i < numBestMoves; i++)
     {
+        int col = bestColumnSearchOrder[i]; // Get the clean, sorted column
+
         if (board.checkMove(col))
         {
             Board nextBoard = board;
@@ -279,7 +280,7 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     }
 
     // Tracks transposition table space and collisions
-    if (ttEntry.depth == -1)
+    if (ttEntry.depth == 0) // new entry being used for the first time
     {
         ttSize++;
     }
@@ -290,7 +291,7 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
 
     // ONLY overwrite if the slot is empty, it's the exact same board,
     // OR the new search is deeper (more valuable) than the old one.
-    if (ttEntry.depth == -1 || ttEntry.boardHash == boardHash || depth >= ttEntry.depth)
+    if (ttEntry.depth == 0 || ttEntry.boardHash == boardHash || depth >= ttEntry.depth)
     {
         // Store the result in the transposition table
         ttEntry.boardHash = boardHash;
@@ -370,11 +371,12 @@ int ConnectFour::getAIMove(int initDepth)
     nodesEvaluated = 0; // zero out the number of nodes each turn
     auto start = std::chrono::steady_clock::now();
     int currentScore = 0;
+    int maxDepth = initDepth - board.numMoves();
 
-    for (int depth = 1; depth <= initDepth; depth++)
+    for (int depth = 1; depth <= maxDepth; depth++)
     {
         // gets the best score each time and only looks for better moves
-        currentScore = MTD(bestMove, depth);
+        currentScore = MTD(currentScore, depth);
         // bestMove = negamax(board, depth, -9999, 9999).second;
 
         // gets best move from transposition table after converging on the best score
@@ -393,7 +395,7 @@ int ConnectFour::getAIMove(int initDepth)
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
         // prints status of the search for each depth
-        std::cout << " Depth: " << depth << " >> "
+        std::cout << " Depth: " << depth + board.numMoves() << " >> "
                   << "| Search Time: " << duration.count() << "ms | "
                   << "Nodes Evaluated: " << nodesEvaluated
                   << " | TT Collisions: " << ttCollisions
@@ -451,7 +453,7 @@ void ConnectFour::startGame()
         else
         {
             std::cout << "AI is thinking (O)...\n";
-            move = getAIMove(34);
+            move = getAIMove(42);
             std::cout << "\nAI chose column: " << move << "\n";
         }
 
@@ -487,6 +489,11 @@ void ConnectFour::startGame()
             {
                 std::cout << "\nStarting a new game...\n";
                 board = Board(); // Reset the board for a new game
+
+                transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
+                ttSize = 0;
+                ttCollisions = 0;
+
                 board.displayBoard();
             }
         }

@@ -11,10 +11,10 @@
 struct TransTEntry
 {
     uint64_t boardHash; // key
-    int score;
-    int depth; // current depth of the search
-    int bestMove;
-    int flag;
+    int16_t score;
+    uint16_t depth : 6;
+    uint16_t bestMove : 3;
+    uint16_t flag : 2;
 };
 
 class ConnectFour
@@ -28,7 +28,7 @@ private:
     // Determines move ordering based on the history heuristic
     int historyHeuristic[2][7]; // [player][column] for move ordering
 
-    // Transposition table (~1.5 GB) to store previously evaluated board states
+    // Transposition table (~1 GB) to store previously evaluated board states
     const int transTableSize = 67108879; // A prime number to reduce collisions
     std::vector<TransTEntry> transpositionTable;
 
