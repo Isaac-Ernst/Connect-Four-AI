@@ -164,8 +164,8 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     is full and return nothing. */
     if (board.numMoves() == 42 || depth == 0)
     {
-        // return {board.score(), -1};
-        return {0, -1}; // strong solver only evaluates wins and losses
+        return {board.score(), -1};
+        // return {0, -1}; // strong solver only evaluates wins and losses
     }
 
     // Initialize score and move
@@ -395,12 +395,13 @@ int ConnectFour::getAIMove(int initDepth)
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
         // prints status of the search for each depth
-        std::cout << " Depth: " << depth + board.numMoves() << " >> "
+        std::cout << "\r Depth: " << depth + board.numMoves() << " >> "
                   << "| Search Time: " << duration.count() << "ms | "
                   << "Nodes Evaluated: " << nodesEvaluated
                   << " | TT Collisions: " << ttCollisions
                   << " | TT Space: " << std::fixed << std::setprecision(2) << 100.0 * ttSize / transTableSize << "%"
-                  << " | Best move: " << bestMove << std::endl;
+                  << " | Best move: " << bestMove << "     ";
+        std::cout.flush();
     }
 
     return bestMove;
@@ -453,7 +454,7 @@ void ConnectFour::startGame()
         else
         {
             std::cout << "AI is thinking (O)...\n";
-            move = getAIMove(42);
+            move = getAIMove(34);
             std::cout << "\nAI chose column: " << move << "\n";
         }
 
