@@ -44,6 +44,13 @@ void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMo
         }
 
         openingBook[boardHash] = bestMove;
+
+        // Every 10,000 positions, quietly dump RAM to the hard drive
+        if (openingBook.size() % 10000 == 0)
+        {
+            std::cout << "\n[Auto-Save] Discovered " << openingBook.size() << " positions. Backing up to disk...\n";
+            saveOpeningBook();
+        }
     }
     // Recursively play every valid column to go one move deeper
     for (int col = 0; col < 7; col++)
@@ -110,6 +117,21 @@ void ConnectFour::loadOpeningBook()
 
     inFile.close();
     std::cout << "Loaded " << openingBook.size() << " perfect opening moves into AI memory.\n";
+}
+
+// Safely serializes the RAM dictionary to the hard drive
+void ConnectFour::saveOpeningBook()
+{
+    std::ofstream outFile("opening_book.bin", std::ios::binary);
+    for (const auto &pair : openingBook)
+    {
+        uint64_t hash = pair.first;
+        uint8_t move = (uint8_t)pair.second;
+
+        outFile.write(reinterpret_cast<const char *>(&hash), sizeof(hash));
+        outFile.write(reinterpret_cast<const char *>(&move), sizeof(move));
+    }
+    outFile.close();
 }
 
 // determines best possible move

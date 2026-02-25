@@ -56,4 +56,5 @@ public:
     bool continueGame();
     void buildOpeningBook(int maxMoves, int searchDepth);
     void loadOpeningBook();
+    void saveOpeningBook();
 };
