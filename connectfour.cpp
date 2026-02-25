@@ -63,6 +63,9 @@ void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth)
     std::cout << "--- STARTING BOOK GENERATION ---\n";
     std::cout << "This will take a long time. Do not close the terminal.\n";
 
+    // Load the existing book into RAM first so we don't recalculate the trunk!
+    loadOpeningBook();
+
     // Clear the transposition table so the engine runs fresh
     transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
 
