@@ -163,10 +163,13 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
 
     /* Second base case is to exit if the board
     is full and return nothing. */
-    if (board.numMoves() == 42 || depth == 0)
+    if ((board.numMoves() == 42 || depth == 0) && !strongSolver)
     {
         return {board.score(), -1};
-        // return {0, -1}; // strong solver only evaluates wins and losses
+    }
+    else if ((board.numMoves() == 42 || depth == 0) && strongSolver)
+    {
+        return {0, -1}; // strong solver only evaluates wins and losses
     }
 
     // Initialize score and move
@@ -372,7 +375,22 @@ int ConnectFour::getAIMove(int initDepth)
     nodesEvaluated = 0; // zero out the number of nodes each turn
     auto start = std::chrono::steady_clock::now();
     int currentScore = 0;
-    int maxDepth = initDepth - board.numMoves();
+    int maxDepth;
+
+    // Switch from heuristic solver to strong solver at a certain depth
+    if (board.numMoves() >= 12) // After 7 moves each, switch to strong solver that only evaluates wins and losses for faster deeper searches
+    {
+        if (!strongSolver)
+        {
+            std::cout << "Switching to strong solver mode for deeper searches...\n";
+        }
+        maxDepth = initDepth - board.numMoves();
+        strongSolver = true;
+    }
+    else
+    {
+        maxDepth = 20;
+    }
 
     for (int depth = 1; depth <= maxDepth; depth++)
     {
@@ -405,12 +423,13 @@ int ConnectFour::getAIMove(int initDepth)
                   << " | Best move: " << bestMove << "     ";
         std::cout.flush();
 
-        if (duration.count() > 5000) // If a search takes more than 5 seconds, break out of the loop and play the best move found so far
-        {
-            std::cout << "\nSearch is taking too long. Playing best move found so far.\n";
-            break;
-        }
+        // if (duration.count() > 5000) // If a search takes more than 5 seconds, break out of the loop and play the best move found so far
+        // {
+        //     std::cout << "\nSearch is taking too long. Playing best move found so far.\n";
+        //     break;
+        // }
     }
+    std::cout << "\n";
 
     return bestMove;
 };
@@ -497,8 +516,8 @@ void ConnectFour::startGame()
             else
             {
                 std::cout << "\nStarting a new game...\n";
-                board = Board(); // Reset the board for a new game
-
+                board = Board();      // Reset the board for a new game
+                strongSolver = false; // Reset strong solver mode for new game
                 transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
                 ttSize = 0;
                 ttCollisions = 0;

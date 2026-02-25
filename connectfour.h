@@ -26,6 +26,9 @@ private:
     int scorePlayer2;
     uint64_t nodesEvaluated;
 
+    // Strong solver mode toggle
+    bool strongSolver = false;
+
     // Determines move ordering based on the history heuristic
     int historyHeuristic[2][7]; // [player][column] for move ordering
 
