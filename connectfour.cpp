@@ -24,7 +24,7 @@ ConnectFour::ConnectFour() : scorePlayer1(0), scorePlayer2(0),
 }
 
 // Recursively explores the opening tree to build the book
-void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth)
+void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool isNewBrain)
 {
     if (currentMove >= maxMoves || currentBoard.checkWin())
         return;
@@ -40,7 +40,7 @@ void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMo
         int bestMove = 3;
         for (int d = 1; d <= searchDepth; d++)
         {
-            bestMove = negamax(this->board, d, -9999, 9999).second;
+            bestMove = negamax(this->board, d, -9999, 9999, isNewBrain).second;
         }
 
         openingBook[boardHash] = bestMove;
@@ -59,13 +59,13 @@ void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMo
         {
             Board nextBoard = currentBoard;
             nextBoard.makeMove(col);
-            generateBookDFS(nextBoard, currentMove + 1, maxMoves, searchDepth);
+            generateBookDFS(nextBoard, currentMove + 1, maxMoves, searchDepth, isNewBrain);
         }
     }
 }
 
 // builds the opening book by doing a depth first search of the game tree and storing the best move for each board state in the opening book
-void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth)
+void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth, bool isNewBrain)
 {
     std::cout << "--- STARTING BOOK GENERATION ---\n";
     std::cout << "This will take a long time. Do not close the terminal.\n";
@@ -78,7 +78,7 @@ void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth)
 
     // Start the recursive solver from an empty board
     Board emptyBoard;
-    generateBookDFS(emptyBoard, 0, maxMoves, searchDepth);
+    generateBookDFS(emptyBoard, 0, maxMoves, searchDepth, isNewBrain);
 
     // Write the resulting dictionary to a highly compressed binary file
     std::ofstream outFile("opening_book.bin", std::ios::binary);
@@ -135,7 +135,7 @@ void ConnectFour::saveOpeningBook()
 }
 
 // determines best possible move
-std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha, int beta)
+std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha, int beta, bool usingOldScoreFunction)
 {
     // Store initial alpha value for transposition table flag determination
     int originalAlpha = alpha;
@@ -190,7 +190,14 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     is full and return nothing. */
     if ((board.numMoves() == 42 || depth == 0) && !strongSolver)
     {
-        return {board.score(), -1};
+        if (!usingOldScoreFunction)
+        {
+            return {board.score(), -1}; // use the new, improved score function for the new brain
+        }
+        else
+        {
+            return {board.oldScore(), -1}; // use the old, naive score function for the old brain (for testing purposes)
+        }
     }
     else if ((board.numMoves() == 42 || depth == 0) && strongSolver)
     {
@@ -271,18 +278,18 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
             int score;
             if (firstMove) // PVS assumes the first move is the best
             {
-                score = -negamax(nextBoard, depth - 1, -beta, -alpha).first;
+                score = -negamax(nextBoard, depth - 1, -beta, -alpha, usingOldScoreFunction).first;
                 firstMove = false;
             }
             else
             {
                 // Will only search with a narrow window if it is not the first move
-                score = -negamax(nextBoard, depth - 1, -alpha - 1, -alpha).first;
+                score = -negamax(nextBoard, depth - 1, -alpha - 1, -alpha, usingOldScoreFunction).first;
 
                 // If the score is between alpha and beta, we need to re-search with the full window
                 if (score > alpha && score < beta)
                 {
-                    score = -negamax(nextBoard, depth - 1, -beta, -score).first;
+                    score = -negamax(nextBoard, depth - 1, -beta, -score, usingOldScoreFunction).first;
                 }
             }
 
@@ -347,7 +354,7 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
 };
 
 // searches a small window to make large alpha-beta cutoffs early into search
-int ConnectFour::MTD(int firstGuess, int depth)
+int ConnectFour::MTD(int firstGuess, int depth, bool isNewBrain)
 {
     int guess = firstGuess;
     int upperBound = 9999;
@@ -360,7 +367,7 @@ int ConnectFour::MTD(int firstGuess, int depth)
         int beta = std::max(guess, lowerBound + 1);
 
         // gets score
-        guess = negamax(board, depth, beta - 1, beta).first;
+        guess = negamax(board, depth, beta - 1, beta, isNewBrain).first;
 
         // if fails high
         if (beta > guess)
@@ -378,7 +385,7 @@ int ConnectFour::MTD(int firstGuess, int depth)
 }
 
 // gets the move of the AI
-int ConnectFour::getAIMove(int initDepth)
+int ConnectFour::getAIMove(int initDepth, bool isNewBrain)
 {
     bool isMirror = false;
     uint64_t currentHash = board.hash(isMirror);
@@ -420,7 +427,7 @@ int ConnectFour::getAIMove(int initDepth)
     for (int depth = 1; depth <= maxDepth; depth++)
     {
         // gets the best score each time and only looks for better moves
-        currentScore = MTD(currentScore, depth);
+        currentScore = MTD(currentScore, depth, isNewBrain);
         // bestMove = negamax(board, depth, -9999, 9999).second;
 
         // gets best move from transposition table after converging on the best score
@@ -447,12 +454,6 @@ int ConnectFour::getAIMove(int initDepth)
                   << " | TT Space: " << std::fixed << std::setprecision(2) << 100.0 * ttSize / transTableSize << "%"
                   << " | Best move: " << bestMove << "     ";
         std::cout.flush();
-
-        // if (duration.count() > 5000) // If a search takes more than 5 seconds, break out of the loop and play the best move found so far
-        // {
-        //     std::cout << "\nSearch is taking too long. Playing best move found so far.\n";
-        //     break;
-        // }
     }
     std::cout << "\n";
 
@@ -498,16 +499,16 @@ void ConnectFour::startGame()
         // Player 1's turn (Even move count)
         if (board.numMoves() % 2 == 0)
         {
-            std::cout << "Player 1's Turn (X)\n";
-            move = getHumanMove();
-            // move = getAIMove(34);
+            std::cout << "AI is thinking (O)...\n";
+            move = getAIMove(42, false);
+            std::cout << "\nAI chose column: " << move << "\n";
         }
         // Player 2's turn (Odd move count)
         else
         {
-            std::cout << "AI is thinking (O)...\n";
-            move = getAIMove(42);
-            std::cout << "\nAI chose column: " << move << "\n";
+            std::cout << "Player 1's Turn (X)\n";
+            move = getHumanMove();
+            // move = getAIMove(42, true);
         }
 
         // Apply the move and show the board

@@ -43,18 +43,18 @@ private:
     // Opening book for the first few moves to speed up the game and make it more challenging
     std::unordered_map<uint64_t, int> openingBook;
 
-    std::pair<int, int> negamax(const Board board, int depth, int alpha, int beta);
+    std::pair<int, int> negamax(const Board board, int depth, int alpha, int beta, bool usingOldScoreFunction);
     // Memory-Enhanced Test Driver - searches the tree with a minimal window to get a better score estimate for the next search
-    int MTD(int firstGuess, int depth);
-    int getAIMove(int initDepth);
+    int MTD(int firstGuess, int depth, bool usingOldScoreFunction);
+    int getAIMove(int initDepth, bool usingOldScoreFunction);
     int getHumanMove();
-    void generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth);
+    void generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool usingOldScoreFunction);
 
 public:
     ConnectFour();
     void startGame();
     bool continueGame();
-    void buildOpeningBook(int maxMoves, int searchDepth);
+    void buildOpeningBook(int maxMoves, int searchDepth, bool usingOldScoreFunction);
     void loadOpeningBook();
     void saveOpeningBook();
 };

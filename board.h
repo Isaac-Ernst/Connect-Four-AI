@@ -41,6 +41,7 @@ public:
     bool makeMove(const int columnNumber);
     bool checkWin() const;
     int score() const;
+    int oldScore() const; // old, naive score function for testing purposes
     void displayBoard() const;
     uint64_t hash(bool &isMirror) const;
 };

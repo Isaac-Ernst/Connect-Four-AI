@@ -5,7 +5,7 @@ int main()
 {
     ConnectFour game;
     // game.buildOpeningBook(8, 14);
-    game.loadOpeningBook();
+    // game.loadOpeningBook();
     game.startGame();
     return 0;
 }
