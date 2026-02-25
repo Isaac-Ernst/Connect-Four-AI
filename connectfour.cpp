@@ -124,10 +124,11 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     // Transposition table lookup
     uint64_t boardHash = board.hash(isMirror); // gets the hash of the mirrored board
     int index = boardHash % transTableSize;
+    uint32_t signature = (uint32_t)(boardHash >> 32);
     TransTEntry &ttEntry = transpositionTable[index];
     int ttBestMove = -1;
 
-    if (ttEntry.boardHash == boardHash)
+    if (ttEntry.signature == signature)
     {
         // filps the best move if the board is mirrored for symmetry reduction
         ttBestMove = isMirror ? (6 - ttEntry.bestMove) : ttEntry.bestMove;
@@ -284,17 +285,17 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     {
         ttSize++;
     }
-    else if (ttEntry.boardHash != boardHash)
+    else if (ttEntry.signature != signature)
     {
         ttCollisions++;
     }
 
     // ONLY overwrite if the slot is empty, it's the exact same board,
     // OR the new search is deeper (more valuable) than the old one.
-    if (ttEntry.depth == 0 || ttEntry.boardHash == boardHash || depth >= ttEntry.depth)
+    if (ttEntry.depth == 0 || ttEntry.signature == signature || depth >= ttEntry.depth)
     {
         // Store the result in the transposition table
-        ttEntry.boardHash = boardHash;
+        ttEntry.signature = signature;
         ttEntry.score = bestScore;
         ttEntry.depth = depth;
         // flips the best move if the board is mirrored for symmetry reduction
@@ -382,9 +383,10 @@ int ConnectFour::getAIMove(int initDepth)
         // gets best move from transposition table after converging on the best score
         bool isMirror = false;
         uint64_t hash = board.hash(isMirror);
+        uint32_t signature = (uint32_t)(hash >> 32);
         int index = hash % transTableSize;
 
-        if (transpositionTable[index].boardHash == hash)
+        if (transpositionTable[index].signature == signature)
         {
             int ttMove = transpositionTable[index].bestMove;
             bestMove = isMirror ? (6 - ttMove) : ttMove;
@@ -402,6 +404,12 @@ int ConnectFour::getAIMove(int initDepth)
                   << " | TT Space: " << std::fixed << std::setprecision(2) << 100.0 * ttSize / transTableSize << "%"
                   << " | Best move: " << bestMove << "     ";
         std::cout.flush();
+
+        if (duration.count() > 5000) // If a search takes more than 5 seconds, break out of the loop and play the best move found so far
+        {
+            std::cout << "\nSearch is taking too long. Playing best move found so far.\n";
+            break;
+        }
     }
 
     return bestMove;
@@ -454,7 +462,7 @@ void ConnectFour::startGame()
         else
         {
             std::cout << "AI is thinking (O)...\n";
-            move = getAIMove(34);
+            move = getAIMove(42);
             std::cout << "\nAI chose column: " << move << "\n";
         }
 

@@ -10,7 +10,8 @@
 // Struct for transposition table entries
 struct TransTEntry
 {
-    uint64_t boardHash; // key
+    // uint64_t boardHash; // key
+    uint32_t signature; // to verify the entry is correct (can be a portion of the hash)
     int16_t score;
     uint16_t depth : 6;
     uint16_t bestMove : 3;
