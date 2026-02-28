@@ -480,7 +480,7 @@ int ConnectFour::getAIMove(int initDepth, bool usingOldScoreFunction)
     }
     else
     {
-        maxDepth = 24;
+        maxDepth = 20;
     }
 
     for (int depth = 1; depth <= maxDepth; depth++)

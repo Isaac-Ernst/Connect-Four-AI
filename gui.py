@@ -30,6 +30,7 @@ def get_move():
         # If it crashes again, this will print the exact C++ error to your browser console
         error_details = result.stdout if 'result' in locals() else str(e)
         return jsonify({'error': error_details}), 500
+        # file:///C:/Users/6stri/ConnectFour/index.html
 
 if __name__ == '__main__':
     print("🚀 Connect Four API is running on http://localhost:5000")
