@@ -6,17 +6,8 @@
 #include <chrono>        // Time measurement
 #include <vector>        // Transposition table implementation
 #include <unordered_map> // Opening book implementation
-
-// Struct for transposition table entries
-struct TransTEntry
-{
-    // uint64_t boardHash; // key
-    uint32_t signature; // to verify the entry is correct (can be a portion of the hash)
-    int16_t score;
-    uint16_t depth : 6;
-    uint16_t bestMove : 3;
-    uint16_t flag : 2;
-};
+#include <mutex>         // multithreading book generation
+#include <thread>
 
 class ConnectFour
 {
@@ -29,12 +20,17 @@ private:
     // Strong solver mode toggle
     bool strongSolver = false;
 
+    std::mutex bookMutex;
+
     // Determines move ordering based on the history heuristic
     int historyHeuristic[2][7]; // [player][column] for move ordering
 
     // Transposition table (~1 GB) to store previously evaluated board states
-    const int transTableSize = 67108879; // A prime number to reduce collisions
-    std::vector<TransTEntry> transpositionTable;
+    const int transTableSize = 67108864;
+    const int sizeMask = transTableSize - 1;
+
+    std::vector<uint64_t> transpositionTable;
+    // std::vector<TransTEntry> transpositionTable;
 
     // Tracks transposition table hits and misses
     uint64_t ttCollisions;
@@ -45,7 +41,7 @@ private:
 
     std::pair<int, int> negamax(const Board board, int depth, int alpha, int beta, bool usingOldScoreFunction);
     // Memory-Enhanced Test Driver - searches the tree with a minimal window to get a better score estimate for the next search
-    int MTD(int firstGuess, int depth, bool usingOldScoreFunction);
+    std::pair<int, int> MTD(Board currentBoard, int firstGuess, int depth, bool usingOldScoreFunction);
     int getAIMove(int initDepth, bool usingOldScoreFunction);
     int getHumanMove();
     void generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool usingOldScoreFunction);

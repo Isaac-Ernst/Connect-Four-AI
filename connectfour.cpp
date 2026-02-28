@@ -10,7 +10,7 @@
 // constructor for the ConnectFour class, initializes scores, nodes evaluated, transposition table, and history heuristic
 ConnectFour::ConnectFour() : scorePlayer1(0), scorePlayer2(0),
                              nodesEvaluated(0), ttCollisions(0), ttSize(0),
-                             transpositionTable(transTableSize, {0, 0, 0, 0, 0})
+                             transpositionTable(transTableSize, 0ULL)
 {
     int defaultHistory[7] = {0, 10, 20, 30, 20, 10, 0};
 
@@ -24,76 +24,106 @@ ConnectFour::ConnectFour() : scorePlayer1(0), scorePlayer2(0),
 }
 
 // Recursively explores the opening tree to build the book
-void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool isNewBrain)
+void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool usingOldScoreFunction)
 {
-    if (currentMove >= maxMoves || currentBoard.checkWin())
+    if (currentMove > maxMoves || currentBoard.checkWin())
         return;
 
     bool isMirror = false;
     uint64_t boardHash = currentBoard.hash(isMirror);
 
-    // If we haven't solved this exact board yet, solve it
-    if (openingBook.find(boardHash) == openingBook.end())
+    // 1. Check if we already solved this exact board
+    bool alreadySolved = false;
     {
-        this->board = currentBoard;
-
-        int bestMove = 3;
-        for (int d = 1; d <= searchDepth; d++)
+        std::lock_guard<std::mutex> lock(bookMutex);
+        if (openingBook.find(boardHash) != openingBook.end())
         {
-            bestMove = negamax(this->board, d, -9999, 9999, isNewBrain).second;
-        }
-
-        openingBook[boardHash] = bestMove;
-
-        // Every 10,000 positions, quietly dump RAM to the hard drive
-        if (openingBook.size() % 10000 == 0)
-        {
-            std::cout << "\n[Auto-Save] Discovered " << openingBook.size() << " positions. Backing up to disk...\n";
-            saveOpeningBook();
+            alreadySolved = true;
         }
     }
-    // Recursively play every valid column to go one move deeper
+
+    // 2. ONLY do the heavy math if it's a completely new board
+    if (!alreadySolved)
+    {
+        int currentScore = 0;
+        int canonicalBestMove = 3; // Default fallback
+
+        for (int d = 1; d <= searchDepth; d++)
+        {
+            // ONLY evaluate the thread's local board!
+            auto result = MTD(currentBoard, currentScore, d, usingOldScoreFunction);
+            currentScore = result.first;
+            if (result.second != -1)
+            {
+                // If the board is mirrored, we MUST flip the move before saving to the canonical dictionary!
+                canonicalBestMove = isMirror ? (6 - result.second) : result.second;
+            }
+        }
+
+        // safe saving for threads
+        {
+            std::lock_guard<std::mutex> lock(bookMutex);
+            openingBook[boardHash] = canonicalBestMove;
+            static int solvedCount = 0;
+            solvedCount++;
+
+            if (solvedCount % 10 == 0)
+            {
+                // Calculate how full the Transposition Table is
+                double ttFillPercent = 100.0 * ttSize / transTableSize;
+
+                std::cout << "\r[New Positions: " << solvedCount
+                          << "] [Nodes: " << (nodesEvaluated / 1000000) << "M] "
+                          << "[TT Fill: " << std::fixed << std::setprecision(2) << ttFillPercent << "%] "
+                          << "[TT Collisions: " << (ttCollisions / 1000000) << "M]      " << std::flush;
+            }
+
+            // Save every 1,000 NEW positions
+            if (solvedCount % 1000 == 0)
+            {
+                std::cout << "\n[Auto-Save] Backing up to disk...\n";
+                saveOpeningBook();
+            }
+        }
+    }
+
+    // Recursion
     for (int col = 0; col < 7; col++)
     {
         if (currentBoard.checkMove(col))
         {
             Board nextBoard = currentBoard;
             nextBoard.makeMove(col);
-            generateBookDFS(nextBoard, currentMove + 1, maxMoves, searchDepth, isNewBrain);
+            generateBookDFS(nextBoard, currentMove + 1, maxMoves, searchDepth, usingOldScoreFunction);
         }
     }
 }
 
 // builds the opening book by doing a depth first search of the game tree and storing the best move for each board state in the opening book
-void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth, bool isNewBrain)
+void ConnectFour::buildOpeningBook(int maxMoves, int searchDepth, bool usingOldScoreFunction)
 {
-    std::cout << "--- STARTING BOOK GENERATION ---\n";
-    std::cout << "This will take a long time. Do not close the terminal.\n";
-
-    // Load the existing book into RAM first so we don't recalculate the trunk!
     loadOpeningBook();
-
-    // Clear the transposition table so the engine runs fresh
-    transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
-
-    // Start the recursive solver from an empty board
+    std::vector<std::thread> threads;
     Board emptyBoard;
-    generateBookDFS(emptyBoard, 0, maxMoves, searchDepth, isNewBrain);
 
-    // Write the resulting dictionary to a highly compressed binary file
-    std::ofstream outFile("opening_book.bin", std::ios::binary);
-    for (const auto &pair : openingBook)
+    bool isMirror;
+    uint64_t emptyHash = emptyBoard.hash(isMirror);
+    openingBook[emptyHash] = 3; // 3 is the mathematically proven best first move
+
+    // Launch a separate thread for each of the 7 starting columns
+    for (int col = 0; col < 7; col++)
     {
-        uint64_t hash = pair.first;
-        uint8_t move = (uint8_t)pair.second; // Compress the move to 1 byte
-
-        outFile.write(reinterpret_cast<const char *>(&hash), sizeof(hash));
-        outFile.write(reinterpret_cast<const char *>(&move), sizeof(move));
+        threads.emplace_back([this, emptyBoard, col, maxMoves, searchDepth, usingOldScoreFunction]()
+                             {
+            Board firstMoveBoard = emptyBoard;
+            if (firstMoveBoard.makeMove(col)) {
+                generateBookDFS(firstMoveBoard, 1, maxMoves, searchDepth, usingOldScoreFunction);
+            } });
     }
-    outFile.close();
 
-    std::cout << "--- BOOK GENERATION COMPLETE ---\n";
-    std::cout << "Saved " << openingBook.size() << " positions to opening_book.bin\n";
+    for (auto &th : threads)
+        th.join();
+    saveOpeningBook();
 }
 
 // loads the opening book from a file
@@ -146,34 +176,44 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     // Checks the mirror state of the board for the transposition table
     bool isMirror = false;
 
-    // Transposition table lookup
-    uint64_t boardHash = board.hash(isMirror); // gets the hash of the mirrored board
-    int index = boardHash % transTableSize;
+    uint64_t boardHash = board.hash(isMirror);
+    int index = boardHash & sizeMask;
     uint32_t signature = (uint32_t)(boardHash >> 32);
-    TransTEntry &ttEntry = transpositionTable[index];
+
+    // --- UNPACK THE 64-BIT INTEGER ---
+    uint64_t ttData = transpositionTable[index];
+    uint32_t ttSignature = (uint32_t)(ttData >> 32);
+    int ttScore = (int16_t)(ttData >> 16);
+    int ttDepth = (ttData >> 10) & 0x3F;
+    int ttRawMove = (ttData >> 7) & 0x7;
+    int ttFlag = (ttData >> 5) & 0x3;
+
     int ttBestMove = -1;
 
-    if (ttEntry.signature == signature)
+    if (ttData != 0 && ttSignature == signature)
     {
-        // filps the best move if the board is mirrored for symmetry reduction
-        ttBestMove = isMirror ? (6 - ttEntry.bestMove) : ttEntry.bestMove;
-        if (ttEntry.depth >= depth)
+        if (ttRawMove != 7)
         {
-            if (ttEntry.flag == 0)
+            ttBestMove = isMirror ? (6 - ttRawMove) : ttRawMove;
+        }
+
+        if (ttDepth >= depth)
+        {
+            if (ttFlag == 0)
             {
-                return {ttEntry.score, ttBestMove}; // Exact Match
+                return {ttScore, ttBestMove}; // Exact Match
             }
-            if (ttEntry.flag == 1 && ttEntry.score > alpha)
+            if (ttFlag == 1 && ttScore > alpha)
             {
-                alpha = ttEntry.score; // Lower Bound
+                alpha = ttScore; // Lower Bound
             }
-            if (ttEntry.flag == 2 && ttEntry.score < beta)
+            if (ttFlag == 2 && ttScore < beta)
             {
-                beta = ttEntry.score; // Upper Bound
+                beta = ttScore; // Upper Bound
             }
             if (alpha >= beta)
             {
-                return {ttEntry.score, ttBestMove}; // Cutoff!
+                return {ttScore, ttBestMove}; // Cutoff!
             }
         }
     }
@@ -225,7 +265,6 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
     }
 
     int remainingMoves[7];
-
     int numRemaining = 0;
     int defaultOrder[7] = {3, 2, 4, 1, 5, 0, 6};
 
@@ -283,9 +322,19 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
             }
             else
             {
-                // Will only search with a narrow window if it is not the first move
-                score = -negamax(nextBoard, depth - 1, -alpha - 1, -alpha, usingOldScoreFunction).first;
+                int reduction = 0;
+                if (i >= 3 && depth >= 4)
+                {
+                    reduction = 1; // Reduce search by 1 full ply
+                }
 
+                // Will only search with a narrow window if it is not the first move
+                score = -negamax(nextBoard, depth - 1 - reduction, -alpha - 1, -alpha, usingOldScoreFunction).first;
+
+                if (reduction > 0 && score > alpha)
+                {
+                    score = -negamax(nextBoard, depth - 1, -alpha - 1, -alpha, usingOldScoreFunction).first;
+                }
                 // If the score is between alpha and beta, we need to re-search with the full window
                 if (score > alpha && score < beta)
                 {
@@ -310,82 +359,86 @@ std::pair<int, int> ConnectFour::negamax(const Board board, int depth, int alpha
                 trap for the opponent by making this move more likely to be searched
                 earlier in the future). */
                 historyHeuristic[currentPlayer][col] += depth * depth; // More depth = more valuable move
+
                 break;
             }
         }
     }
 
-    // Tracks transposition table space and collisions
-    if (ttEntry.depth == 0) // new entry being used for the first time
+    if (ttData == 0)
     {
         ttSize++;
     }
-    else if (ttEntry.signature != signature)
+    else if (ttSignature != signature)
     {
         ttCollisions++;
     }
 
-    // ONLY overwrite if the slot is empty, it's the exact same board,
-    // OR the new search is deeper (more valuable) than the old one.
-    if (ttEntry.depth == 0 || ttEntry.signature == signature || depth >= ttEntry.depth)
+    // ONLY overwrite if empty, exact match, or deeper search
+    if (ttData == 0 || ttSignature == signature || depth >= ttDepth)
     {
-        // Store the result in the transposition table
-        ttEntry.signature = signature;
-        ttEntry.score = bestScore;
-        ttEntry.depth = depth;
-        // flips the best move if the board is mirrored for symmetry reduction
-        ttEntry.bestMove = isMirror ? (6 - bestMove) : bestMove;
-
+        int flagToSave = 0;
         if (bestScore <= originalAlpha)
         {
-            ttEntry.flag = 2; // Upper Bound
+            flagToSave = 2; // Upper Bound
         }
         else if (bestScore >= beta)
         {
-            ttEntry.flag = 1; // Lower Bound
+            flagToSave = 1; // Lower Bound
         }
-        else
-        {
-            ttEntry.flag = 0; // Exact Match
-        }
+
+        int moveToSave = (bestMove == -1) ? 7 : (isMirror ? (6 - bestMove) : bestMove);
+
+        // --- PACK THE BITS INTO A SINGLE 64-BIT INTEGER ---
+        uint64_t packed = 0;
+        packed |= (uint64_t)signature << 32;
+        packed |= ((uint64_t)(uint16_t)bestScore) << 16;
+        packed |= (uint64_t)(depth & 0x3F) << 10;
+        packed |= (uint64_t)(moveToSave & 0x7) << 7;
+        packed |= (uint64_t)(flagToSave & 0x3) << 5;
+        packed |= 1ULL; // Set the very last bit to 1 so the entry is never '0'
+
+        // Save it in one unbreakable hardware instruction
+        transpositionTable[index] = packed;
     }
 
     return {bestScore, bestMove};
 };
 
 // searches a small window to make large alpha-beta cutoffs early into search
-int ConnectFour::MTD(int firstGuess, int depth, bool isNewBrain)
+std::pair<int, int> ConnectFour::MTD(Board currentBoard, int firstGuess, int depth, bool usingOldScoreFunction)
 {
     int guess = firstGuess;
     int upperBound = 9999;
     int lowerBound = -9999;
+    int bestMove = -1;
 
-    // loop until bounds converge
     while (lowerBound < upperBound)
     {
-        // zero window search around the current guess
         int beta = std::max(guess, lowerBound + 1);
+        auto result = negamax(currentBoard, depth, beta - 1, beta, usingOldScoreFunction);
+        guess = result.first;
 
-        // gets score
-        guess = negamax(board, depth, beta - 1, beta, isNewBrain).first;
+        // Secure the best move directly
+        if (result.second != -1)
+        {
+            bestMove = result.second;
+        }
 
-        // if fails high
         if (beta > guess)
         {
             upperBound = guess;
         }
-        // else fails low
         else
         {
             lowerBound = guess;
         }
     }
-    // return exact score
-    return guess;
+    return {guess, bestMove};
 }
 
 // gets the move of the AI
-int ConnectFour::getAIMove(int initDepth, bool isNewBrain)
+int ConnectFour::getAIMove(int initDepth, bool usingOldScoreFunction)
 {
     bool isMirror = false;
     uint64_t currentHash = board.hash(isMirror);
@@ -410,7 +463,7 @@ int ConnectFour::getAIMove(int initDepth, bool isNewBrain)
     int maxDepth;
 
     // Switch from heuristic solver to strong solver at a certain depth
-    if (board.numMoves() >= 12) // After 7 moves each, switch to strong solver that only evaluates wins and losses for faster deeper searches
+    if (board.numMoves() >= 12) // After 6 moves each, switch to strong solver that only evaluates wins and losses for faster deeper searches
     {
         if (!strongSolver)
         {
@@ -421,28 +474,20 @@ int ConnectFour::getAIMove(int initDepth, bool isNewBrain)
     }
     else
     {
-        maxDepth = 20;
+        maxDepth = 24;
     }
 
     for (int depth = 1; depth <= maxDepth; depth++)
     {
-        // gets the best score each time and only looks for better moves
-        currentScore = MTD(currentScore, depth, isNewBrain);
-        // bestMove = negamax(board, depth, -9999, 9999).second;
+        auto result = MTD(board, currentScore, depth, usingOldScoreFunction);
+        currentScore = result.first;
 
-        // gets best move from transposition table after converging on the best score
-        bool isMirror = false;
-        uint64_t hash = board.hash(isMirror);
-        uint32_t signature = (uint32_t)(hash >> 32);
-        int index = hash % transTableSize;
-
-        if (transpositionTable[index].signature == signature)
+        // Grab the move directly (No flipping needed, MTD searches the actual board!)
+        if (result.second != -1)
         {
-            int ttMove = transpositionTable[index].bestMove;
-            bestMove = isMirror ? (6 - ttMove) : ttMove;
+            bestMove = result.second;
         }
 
-        // Gets the time for each search depth
         auto end = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -499,14 +544,14 @@ void ConnectFour::startGame()
         // Player 1's turn (Even move count)
         if (board.numMoves() % 2 == 0)
         {
-            std::cout << "AI is thinking (O)...\n";
+            std::cout << "AI is thinking (X)...\n";
             move = getAIMove(42, false);
             std::cout << "\nAI chose column: " << move << "\n";
         }
         // Player 2's turn (Odd move count)
         else
         {
-            std::cout << "Player 1's Turn (X)\n";
+            std::cout << "Player 1's Turn (O)\n";
             move = getHumanMove();
             // move = getAIMove(42, true);
         }
@@ -520,11 +565,11 @@ void ConnectFour::startGame()
         {
             if (board.numMoves() % 2 == 1)
             {
-                std::cout << "\n*** PLAYER 1 WINS! ***\n";
+                std::cout << "\n*** AI WINS! ***\n";
             }
             else
             {
-                std::cout << "\n*** AI WINS! ***\n";
+                std::cout << "\n*** PLAYER 1 WINS! ***\n";
             }
         }
         else if (board.numMoves() == 42) // Check for a draw
@@ -544,7 +589,8 @@ void ConnectFour::startGame()
                 std::cout << "\nStarting a new game...\n";
                 board = Board();      // Reset the board for a new game
                 strongSolver = false; // Reset strong solver mode for new game
-                transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
+                // transpositionTable.assign(transTableSize, {0, 0, 0, 0, 0});
+                transpositionTable.assign(transTableSize, 0ULL);
                 ttSize = 0;
                 ttCollisions = 0;
 

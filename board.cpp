@@ -55,28 +55,34 @@ bool Board::checkWin() const
     operator to either return a binary 1 and 0,
     it will check to see if any 1 aligns with
     another 1 and return true if so. */
+    // We check the opponent's pieces because they are the one who just moved.
     uint64_t pos = currentPosition ^ mask;
+    uint64_t m;
 
-    // check for horizontal wins
-    if ((pos & (pos >> 7) & (pos >> 14) & (pos >> 21)) != 0)
+    // Horizontal Check
+    m = pos & (pos >> 7);
+    if (m & (m >> 14))
     {
         return true;
     }
 
-    // check for vertical wins
-    if ((pos & (pos >> 1) & (pos >> 2) & (pos >> 3)) != 0)
+    // Vertical Check
+    m = pos & (pos >> 1);
+    if (m & (m >> 2))
     {
         return true;
     }
 
-    // check for left-right diagonal wins
-    if ((pos & (pos >> 8) & (pos >> 16) & (pos >> 24)) != 0)
+    // Diagonal 1 Check (\)
+    m = pos & (pos >> 8);
+    if (m & (m >> 16))
     {
         return true;
     }
 
-    // check for right-left diagonal wins
-    if ((pos & (pos >> 6) & (pos >> 12) & (pos >> 18)) != 0)
+    // Diagonal 2 Check (/)
+    m = pos & (pos >> 6);
+    if (m & (m >> 12))
     {
         return true;
     }
@@ -87,90 +93,90 @@ bool Board::checkWin() const
 // helper function for score evaluation
 int Board::countPatterns(uint64_t pos) const
 {
-    int score = 0;
+    uint64_t empty = ~(mask);
 
-    // Empty spaces on the board
-    uint64_t emptySpaces = ~(mask);
+    // Accumulators for each score weight.
+    uint64_t w50 = 0, w10 = 0, w7 = 0, w5 = 0, w3 = 0, w2 = 0;
 
-    // Actually COUNT the patterns by multiplying the number of matches by the score!
-    // Unstopable 3 in a row ( _ X X X _ )
-    score += (int)__popcnt64(emptySpaces & (pos >> 7) & (pos >> 14) & (pos >> 21) & (emptySpaces >> 28)) * 50;
+    // --- HORIZONTAL (Shift 7) ---
+    uint64_t p_7 = pos >> 7, p_14 = pos >> 14, p_21 = pos >> 21;
+    uint64_t e_7 = empty >> 7, e_14 = empty >> 14, e_21 = empty >> 21;
 
-    // Checks for 3 in a row with no open ends but a space in the center ( X X _ X ) or ( X _ X X )
-    score += (int)__popcnt64(pos & (emptySpaces >> 7) & (pos >> 14) & (pos >> 21)) * 10;
-    score += (int)__popcnt64(pos & (pos >> 7) & (emptySpaces >> 14) & (pos >> 21)) * 10;
+    w50 |= empty & p_7 & p_14 & p_21 & (empty >> 28); // _XXX_
 
-    score += (int)__popcnt64(pos & (emptySpaces >> 8) & (pos >> 16) & (pos >> 24)) * 10;
-    score += (int)__popcnt64(pos & (pos >> 8) & (emptySpaces >> 16) & (pos >> 24)) * 10;
+    w10 |= pos & e_7 & p_14 & p_21; // X_XX
+    w10 |= pos & p_7 & e_14 & p_21; // XX_X
 
-    score += (int)__popcnt64(pos & (emptySpaces >> 6) & (pos >> 12) & (pos >> 18)) * 10;
-    score += (int)__popcnt64(pos & (pos >> 6) & (emptySpaces >> 12) & (pos >> 18)) * 10;
+    w7 |= pos & p_7 & p_14 & e_21;   // XXX_
+    w7 |= empty & p_7 & p_14 & p_21; // _XXX
 
-    // Checks for 3 in a row with an open end ( X X X _ ) or ( _ X X X )
-    score += (int)__popcnt64(pos & (pos >> 7) & (pos >> 14) & (emptySpaces >> 21)) * 7;
-    score += (int)__popcnt64(emptySpaces & (pos >> 7) & (pos >> 14) & (pos >> 21)) * 7;
+    w3 |= pos & p_7 & e_14 & e_21;   // XX__
+    w3 |= empty & e_7 & p_14 & p_21; // __XX
+    w3 |= pos & e_7 & e_14 & p_21;   // X__X
+    w3 |= empty & p_7 & p_14 & e_21; // _XX_
+    w3 |= pos & e_7 & p_14 & e_21;   // X_X_
+    w3 |= empty & p_7 & e_14 & p_21; // _X_X
 
-    score += (int)__popcnt64(pos & (pos >> 1) & (pos >> 2) & (emptySpaces >> 3)) * 5;
+    w2 |= pos & p_7 & e_14;   // XX_
+    w2 |= empty & p_7 & p_14; // _XX
+    w2 |= pos & e_7 & p_14;   // X_X
 
-    score += (int)__popcnt64(pos & (pos >> 8) & (pos >> 16) & (emptySpaces >> 24)) * 7;
-    score += (int)__popcnt64(emptySpaces & (pos >> 8) & (pos >> 16) & (pos >> 24)) * 7;
+    // --- VERTICAL (Shift 1) ---
+    uint64_t p_1 = pos >> 1, p_2 = pos >> 2;
+    uint64_t e_2 = empty >> 2, e_3 = empty >> 3;
 
-    score += (int)__popcnt64(pos & (pos >> 6) & (pos >> 12) & (emptySpaces >> 18)) * 7;
-    score += (int)__popcnt64(emptySpaces & (pos >> 6) & (pos >> 12) & (pos >> 18)) * 7;
+    w5 |= pos & p_1 & p_2 & e_3; // XXX_ (Vertical only open on top)
+    w2 |= pos & p_1 & e_2;       // XX_
 
-    // Checks for 2 in a row with two spaces
-    // Checks for (X X _ _), (_ _ X X), and (X _ _ X)
+    // --- DIAGONAL 1 (Shift 8) ---
+    uint64_t p_8 = pos >> 8, p_16 = pos >> 16, p_24 = pos >> 24;
+    uint64_t e_8 = empty >> 8, e_16 = empty >> 16, e_24 = empty >> 24;
 
-    // Horizontal Runways & Gaps
-    score += (int)__popcnt64(pos & (pos >> 7) & (emptySpaces >> 14) & (emptySpaces >> 21)) * 3;
-    score += (int)__popcnt64(emptySpaces & (emptySpaces >> 7) & (pos >> 14) & (pos >> 21)) * 3;
-    score += (int)__popcnt64(pos & (emptySpaces >> 7) & (emptySpaces >> 14) & (pos >> 21)) * 3;
+    w10 |= pos & e_8 & p_16 & p_24;
+    w10 |= pos & p_8 & e_16 & p_24;
 
-    // Diagonal 1 Runways & Gaps
-    score += (int)__popcnt64(pos & (pos >> 8) & (emptySpaces >> 16) & (emptySpaces >> 24)) * 3;
-    score += (int)__popcnt64(emptySpaces & (emptySpaces >> 8) & (pos >> 16) & (pos >> 24)) * 3;
-    score += (int)__popcnt64(pos & (emptySpaces >> 8) & (emptySpaces >> 16) & (pos >> 24)) * 3;
+    w7 |= pos & p_8 & p_16 & e_24;
+    w7 |= empty & p_8 & p_16 & p_24;
 
-    // Diagonal 2 Runways & Gaps
-    score += (int)__popcnt64(pos & (pos >> 6) & (emptySpaces >> 12) & (emptySpaces >> 18)) * 3;
-    score += (int)__popcnt64(emptySpaces & (emptySpaces >> 6) & (pos >> 12) & (pos >> 18)) * 3;
-    score += (int)__popcnt64(pos & (emptySpaces >> 6) & (emptySpaces >> 12) & (pos >> 18)) * 3;
+    w3 |= pos & p_8 & e_16 & e_24;
+    w3 |= empty & e_8 & p_16 & p_24;
+    w3 |= pos & e_8 & e_16 & p_24;
+    w3 |= empty & p_8 & p_16 & e_24;
+    w3 |= pos & e_8 & p_16 & e_24;
+    w3 |= empty & p_8 & e_16 & p_24;
 
-    // Horizontal Premium (_ X X _,  X _ X _,  _ X _ X)
-    score += (int)__popcnt64(emptySpaces & (pos >> 7) & (pos >> 14) & (emptySpaces >> 21)) * 3;
-    score += (int)__popcnt64(pos & (emptySpaces >> 7) & (pos >> 14) & (emptySpaces >> 21)) * 3;
-    score += (int)__popcnt64(emptySpaces & (pos >> 7) & (emptySpaces >> 14) & (pos >> 21)) * 3;
+    w2 |= pos & p_8 & e_16;
+    w2 |= empty & p_8 & p_16;
+    w2 |= pos & e_8 & p_16;
 
-    // Diagonal 1 Premium (_ X X _,  X _ X _,  _ X _ X)
-    score += (int)__popcnt64(emptySpaces & (pos >> 8) & (pos >> 16) & (emptySpaces >> 24)) * 3;
-    score += (int)__popcnt64(pos & (emptySpaces >> 8) & (pos >> 16) & (emptySpaces >> 24)) * 3;
-    score += (int)__popcnt64(emptySpaces & (pos >> 8) & (emptySpaces >> 16) & (pos >> 24)) * 3;
+    // --- DIAGONAL 2 (Shift 6) ---
+    uint64_t p_6 = pos >> 6, p_12 = pos >> 12, p_18 = pos >> 18;
+    uint64_t e_6 = empty >> 6, e_12 = empty >> 12, e_18 = empty >> 18;
 
-    // Diagonal 2 Premium (_ X X _,  X _ X _,  _ X _ X)
-    score += (int)__popcnt64(emptySpaces & (pos >> 6) & (pos >> 12) & (emptySpaces >> 18)) * 3;
-    score += (int)__popcnt64(pos & (emptySpaces >> 6) & (pos >> 12) & (emptySpaces >> 18)) * 3;
-    score += (int)__popcnt64(emptySpaces & (pos >> 6) & (emptySpaces >> 12) & (pos >> 18)) * 3;
+    w10 |= pos & e_6 & p_12 & p_18;
+    w10 |= pos & p_6 & e_12 & p_18;
 
-    // Checks for 2 in a row with a space
-    // Horizontal (X X _, _ X X, X _ X)
-    score += (int)__popcnt64(pos & (pos >> 7) & (emptySpaces >> 14)) * 2;
-    score += (int)__popcnt64(emptySpaces & (pos >> 7) & (pos >> 14)) * 2;
-    score += (int)__popcnt64(pos & (emptySpaces >> 7) & (pos >> 14)) * 2;
+    w7 |= pos & p_6 & p_12 & e_18;
+    w7 |= empty & p_6 & p_12 & p_18;
 
-    // Vertical (can only be open on top: X X _)
-    score += (int)__popcnt64(pos & (pos >> 1) & (emptySpaces >> 2)) * 2;
+    w3 |= pos & p_6 & e_12 & e_18;
+    w3 |= empty & e_6 & p_12 & p_18;
+    w3 |= pos & e_6 & e_12 & p_18;
+    w3 |= empty & p_6 & p_12 & e_18;
+    w3 |= pos & e_6 & p_12 & e_18;
+    w3 |= empty & p_6 & e_12 & p_18;
 
-    // Diagonal 1 (X X _, _ X X, X _ X)
-    score += (int)__popcnt64(pos & (pos >> 8) & (emptySpaces >> 16)) * 2;
-    score += (int)__popcnt64(emptySpaces & (pos >> 8) & (pos >> 16)) * 2;
-    score += (int)__popcnt64(pos & (emptySpaces >> 8) & (pos >> 16)) * 2;
+    w2 |= pos & p_6 & e_12;
+    w2 |= empty & p_6 & p_12;
+    w2 |= pos & e_6 & p_12;
 
-    // Diagonal 2 (X X _, _ X X, X _ X)
-    score += (int)__popcnt64(pos & (pos >> 6) & (emptySpaces >> 12)) * 2;
-    score += (int)__popcnt64(emptySpaces & (pos >> 6) & (pos >> 12)) * 2;
-    score += (int)__popcnt64(pos & (emptySpaces >> 6) & (pos >> 12)) * 2;
-
-    return score;
+    // Execute popcounts only once per weight class
+    return ((int)__popcnt64(w50) * 50) +
+           ((int)__popcnt64(w10) * 10) +
+           ((int)__popcnt64(w7) * 7) +
+           ((int)__popcnt64(w5) * 5) +
+           ((int)__popcnt64(w3) * 3) +
+           ((int)__popcnt64(w2) * 2);
 }
 
 // gets the score of the current position
