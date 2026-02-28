@@ -32,6 +32,7 @@ Follow these steps to compile the engine and spin up the web application on your
 Download this project to your local machine and navigate into the folder.
 
 `git clone [https://github.com/YOUR_USERNAME/ConnectFourAI.git](https://github.com/YOUR_USERNAME/ConnectFourAI.git)`
+
 `cd ConnectFourAI`
 
 Step 2: Compile the C++ Engine
@@ -60,7 +61,7 @@ The API will automatically initialize the engine, the AI will take the first mov
 
 🛠️ Tech Stack
 
-    Backend Computations: C++17
+    `Backend Computations: C++17`
 
     API Framework: Python 3, Flask
 
