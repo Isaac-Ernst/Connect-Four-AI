@@ -1,0 +1,339 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Grandmaster AI Connect Four</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --board-color: #0055cc;
+            --human-color: #ff4d4d;
+            --ai-color: #ffcc00;
+            /* --highlight-color: rgba(255, 255, 255, 0.1); */
+            --highlight-color: rgba(211, 211, 211, 0.4);
+        }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; flex-direction: column; align-items: center; 
+            background-color: var(--bg-color); color: white; margin-top: 30px; 
+            user-select: none;
+            
+            /* The Animated Gradient Background */
+            background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #121212);
+            background-size: 400% 400%;
+            animation: animateBackground 15s ease infinite;
+            
+            /* Forces the background to cover the whole screen */
+            min-height: 100vh; 
+        }
+
+        /* Add this anywhere inside your <style> tag */
+        @keyframes animateBackground {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        /* Scoreboard UI */
+        #scoreboard {
+            display: flex; gap: 40px; margin-bottom: 20px;
+            font-size: 20px; font-weight: bold; background: #1e1e1e;
+            padding: 15px 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .score-red { color: var(--human-color); }
+        .score-yellow { color: var(--ai-color); }
+
+        #status { margin-bottom: 20px; font-size: 26px; font-weight: bold; height: 35px; text-align: center;}
+        
+        /* The Board */
+        #board { 
+            display: grid; grid-template-columns: repeat(7, 80px); grid-template-rows: repeat(6, 80px); 
+            gap: 10px; background-color: var(--board-color); padding: 15px; 
+            border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.7); 
+            position: relative;
+        }
+        
+        /* The holes in the board */
+        .cell { 
+            width: 80px; height: 80px; background-color: var(--bg-color); 
+            border-radius: 50%; cursor: pointer; position: relative; overflow: hidden;
+        }
+        
+        /* Smart Column Highlight */
+        .cell[data-highlight="true"]:not(.player1):not(.player2) {
+           background-color: var(--highlight-color);
+        }
+
+        /* The Pieces (Pseudo-elements for animation) */
+        .player1, .player2 { cursor: default; }
+        .player1::before, .player2::before {
+            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            border-radius: 50%; box-shadow: inset 0 -8px rgba(0,0,0,0.3);
+             /* Start above the board */
+            transform: translateY(-600px);
+        }
+        .player1::before { background-color: var(--human-color); } 
+        .player2::before { background-color: var(--ai-color); }
+
+        /* Dropping Animation Class */
+        .animate-drop::before {
+            animation: dropIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+        
+        /* Instant placement for page reloads */
+        .instant-place::before {
+             transform: translateY(0);
+        }
+
+        @keyframes dropIn {
+            0% { transform: translateY(-600px); }
+            60% { transform: translateY(20px); } /* Little bounce at bottom */
+            100% { transform: translateY(0); }
+        }
+
+        /* Play Again Button */
+        #resetBtn {
+            margin-top: 25px; padding: 12px 25px; font-size: 18px; font-weight: bold;
+            background-color: var(--board-color); color: white; border: none; border-radius: 8px;
+            cursor: pointer; display: none; transition: background 0.2s, transform 0.1s;
+        }
+        #resetBtn:hover { background-color: #0044aa; transform: scale(1.05);}
+        #resetBtn:active { transform: scale(0.98);}
+    </style>
+</head>
+<body>
+    <div id="scoreboard">
+        <div class="score-red">Total Human Wins: <span id="humanWins">0</span></div>
+        <div class="score-yellow">Total AI Wins: <span id="aiWins">0</span></div>
+    </div>
+
+    <div id="status">Initializing Engine...</div>
+    <div id="board"></div>
+    <button id="resetBtn" onclick="resetGame()">Play Again</button>
+
+    <script>
+        const boardElement = document.getElementById('board');
+        const statusElement = document.getElementById('status');
+        const resetBtn = document.getElementById('resetBtn');
+        const humanWinsEl = document.getElementById('humanWins');
+        const aiWinsEl = document.getElementById('aiWins');
+
+        let history = ""; 
+        let isHumanTurn = false;
+        let gameOver = false;
+
+        // --- 1. State Management & Initialization ---
+
+        // Load lifetime stats from Browser LocalStorage
+        let humanWins = parseInt(localStorage.getItem('c4_humanWins')) || 0;
+        let aiWins = parseInt(localStorage.getItem('c4_aiWins')) || 0;
+        humanWinsEl.innerText = humanWins;
+        aiWinsEl.innerText = aiWins;
+
+        // Draw the 7x6 board structure
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 7; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.col = c;
+                cell.dataset.row = r;
+                
+                // Mouse event listeners for highlighting and clicking
+                cell.onmouseenter = () => highlightColumn(c, true);
+                cell.onmouseleave = () => highlightColumn(c, false);
+                cell.onclick = () => makeHumanMove(c);
+                boardElement.appendChild(cell);
+            }
+        }
+
+        // --- 2. Visual Logic (Highlighting & Dropping) ---
+
+        function highlightColumn(col, shouldHighlight) {
+            if (gameOver) return;
+            // Find all empty cells in this column
+            const cells = document.querySelectorAll(`.cell[data-col='${col}']:not(.player1):not(.player2)`);
+            cells.forEach(cell => {
+                if (shouldHighlight) cell.setAttribute('data-highlight', 'true');
+                else cell.removeAttribute('data-highlight');
+            });
+        }
+
+        function dropPiece(col, playerClass, animate = true) {
+            // Find the lowest empty row in the column
+            for (let r = 5; r >= 0; r--) {
+                const cell = document.querySelector(`.cell[data-col='${col}'][data-row='${r}']`);
+                if (!cell.classList.contains('player1') && !cell.classList.contains('player2')) {
+                    
+                    cell.classList.add(playerClass);
+                    // Add animation class vs instant placement class based on context
+                    if (animate) cell.classList.add('animate-drop');
+                    else cell.classList.add('instant-place');
+                    
+                    cell.removeAttribute('data-highlight'); // Remove highlight immediately
+                    return true; // Piece placed successfully
+                }
+            }
+            return false; // Column is full
+        }
+
+        // --- 3. Game Logic (Win Checking & Game Over) ---
+
+        function checkWin(playerClass) {
+            const getCell = (c, r) => document.querySelector(`.cell[data-col='${c}'][data-row='${r}']`);
+            
+            // Iterate through every cell to check for 4 directions
+            for (let c = 0; c < 7; c++) {
+                for (let r = 0; r < 6; r++) {
+                    if (!getCell(c, r).classList.contains(playerClass)) continue;
+                    
+                    // Horizontal, Vertical, Diagonal Right, Diagonal Left
+                    if (c + 3 < 7 && getCell(c+1,r).classList.contains(playerClass) && getCell(c+2,r).classList.contains(playerClass) && getCell(c+3,r).classList.contains(playerClass)) return true;
+                    if (r + 3 < 6 && getCell(c,r+1).classList.contains(playerClass) && getCell(c,r+2).classList.contains(playerClass) && getCell(c,r+3).classList.contains(playerClass)) return true;
+                    if (c + 3 < 7 && r + 3 < 6 && getCell(c+1,r+1).classList.contains(playerClass) && getCell(c+2,r+2).classList.contains(playerClass) && getCell(c+3,r+3).classList.contains(playerClass)) return true;
+                    if (c - 3 >= 0 && r + 3 < 6 && getCell(c-1,r+1).classList.contains(playerClass) && getCell(c-2,r+2).classList.contains(playerClass) && getCell(c-3,r+3).classList.contains(playerClass)) return true;
+                }
+            }
+            return false;
+        }
+
+        function triggerAIWinCelebration() {
+             // Fire confetti from left and right edges
+             var duration = 3 * 1000;
+             var animationEnd = Date.now() + duration;
+             var defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 1000 };
+
+             function randomInRange(min, max) { return Math.random() * (max - min) + min; }
+
+             var interval = setInterval(function() {
+               var timeLeft = animationEnd - Date.now();
+               if (timeLeft <= 0) return clearInterval(interval);
+               var particleCount = 50 * (timeLeft / duration);
+               // Use AI colors (gold/yellow/white)
+               confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }, colors: ['#ffcc00', '#ffffff', '#ffd700'] }));
+               confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }, colors: ['#ffcc00', '#ffffff', '#ffd700'] }));
+             }, 250);
+        }
+
+        function handleGameOver(winnerClass) {
+            gameOver = true;
+            isHumanTurn = false;
+            resetBtn.style.display = "block";
+            // Remove any lingering highlights
+            document.querySelectorAll('.cell').forEach(c => c.removeAttribute('data-highlight'));
+            
+            if (winnerClass === 'player1') {
+                // This state is theoretically impossible against your engine :)
+                statusElement.innerText = "You Win!";
+                statusElement.style.color = "var(--human-color)";
+                humanWins++;
+                localStorage.setItem('c4_humanWins', humanWins);
+                humanWinsEl.innerText = humanWins;
+            } else if (winnerClass === 'player2') {
+                statusElement.innerText = "Engine Wins. Flawless Victory.";
+                statusElement.style.color = "var(--ai-color)";
+                aiWins++;
+                localStorage.setItem('c4_aiWins', aiWins);
+                aiWinsEl.innerText = aiWins;
+                triggerAIWinCelebration(); // Trigger confetti
+            } else {
+                statusElement.innerText = "Draw Game.";
+                statusElement.style.color = "white";
+            }
+            // Clear current game state so reload starts fresh
+            localStorage.removeItem('c4_current_history'); 
+        }
+
+        // --- 4. API & Move Coordination ---
+
+        async function triggerAI() {
+            if (gameOver) return;
+            statusElement.innerText = "Engine is calculating...";
+            statusElement.style.color = "var(--ai-color)";
+
+            try {
+                const response = await fetch('http://localhost:5000/get_move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ history: history })
+                });
+                
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                // AI plays
+                let aiMove = data.ai_move;
+                dropPiece(aiMove, 'player2', true);
+                history += aiMove.toString();
+                localStorage.setItem('c4_current_history', history); // Persist current game
+                
+                if (checkWin('player2')) return handleGameOver('player2');
+                if (history.length === 42) return handleGameOver('draw');
+
+                // Hand control back to human
+                statusElement.innerText = "Your Turn (Red)";
+                statusElement.style.color = "var(--human-color)";
+                isHumanTurn = true;
+
+            } catch (err) {
+                statusElement.innerText = "Connection Error. Is python gui.py running?";
+                statusElement.style.color = "red";
+                console.error(err);
+            }
+        }
+
+        async function makeHumanMove(col) {
+            if (!isHumanTurn || gameOver) return;
+
+            // Try to drop piece in the clicked column
+            if (dropPiece(col, 'player1', true)) {
+                history += col.toString();
+                localStorage.setItem('c4_current_history', history); // Persist current game
+                isHumanTurn = false; 
+                highlightColumn(col, false); // Remove highlight on click
+                
+                if (checkWin('player1')) return handleGameOver('player1');
+                if (history.length === 42) return handleGameOver('draw');
+
+                await triggerAI();
+            }
+        }
+
+        function resetGame() {
+            // Clear current game history but keep lifetime stats
+            localStorage.removeItem('c4_current_history');
+            location.reload();
+        }
+
+        // --- 5. Application Boot ---
+        window.onload = async () => {
+            // Check if there is an active game to restore
+            const savedHistory = localStorage.getItem('c4_current_history');
+            
+            if (savedHistory) {
+                history = savedHistory;
+                // Restore board instantly (animate = false)
+                for (let i = 0; i < savedHistory.length; i++) {
+                    const col = parseInt(savedHistory[i]);
+                    const playerClass = (i % 2 === 0) ? 'player2' : 'player1';
+                    dropPiece(col, playerClass, false);
+                }
+                
+                // Check game state after restoration
+                if (checkWin('player2')) return handleGameOver('player2');
+                if (checkWin('player1')) return handleGameOver('player1');
+                if (history.length === 42) return handleGameOver('draw');
+                
+                // Resume turn
+                statusElement.innerText = "Your Turn (Red)";
+                statusElement.style.color = "var(--human-color)";
+                isHumanTurn = true;
+            } else {
+                // Brand new game: AI goes first automatically
+                await triggerAI();
+            }
+        };
+    </script>
+</body>
+</html>
