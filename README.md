@@ -60,7 +60,11 @@ Leave the terminal running in the background. Open your file explorer and simply
 The API will automatically initialize the engine, the AI will take the first move (Yellow) in the center column, and the game will begin.
 
 🛠️ Tech Stack
-    Backend Computations: C++17
-    API Framework: Python 3, Flask
-    Frontend: Vanilla HTML5, CSS3, JavaScript
-     Celebration Effects: `canvas-confetti` CDN
+
+Backend Computations: C++17
+
+API Framework: Python 3, Flask
+
+Frontend: Vanilla HTML5, CSS3, JavaScript
+
+Celebration Effects: `canvas-confetti` CDN
