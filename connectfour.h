@@ -42,14 +42,15 @@ private:
     std::pair<int, int> negamax(const Board board, int depth, int alpha, int beta, bool usingOldScoreFunction);
     // Memory-Enhanced Test Driver - searches the tree with a minimal window to get a better score estimate for the next search
     std::pair<int, int> MTD(Board currentBoard, int firstGuess, int depth, bool usingOldScoreFunction);
-    int getAIMove(int initDepth, bool usingOldScoreFunction);
-    int getHumanMove();
     void generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool usingOldScoreFunction);
 
 public:
     ConnectFour();
     void startGame();
     bool continueGame();
+    bool makeMove(int col);
+    int getAIMove(int initDepth, bool usingOldScoreFunction);
+    int getHumanMove();
     void buildOpeningBook(int maxMoves, int searchDepth, bool usingOldScoreFunction);
     void loadOpeningBook();
     void saveOpeningBook();

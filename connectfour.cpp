@@ -23,6 +23,12 @@ ConnectFour::ConnectFour() : scorePlayer1(0), scorePlayer2(0),
     }
 }
 
+// make move helper function
+bool ConnectFour::makeMove(int col)
+{
+    return board.makeMove(col);
+}
+
 // Recursively explores the opening tree to build the book
 void ConnectFour::generateBookDFS(Board currentBoard, int currentMove, int maxMoves, int searchDepth, bool usingOldScoreFunction)
 {
