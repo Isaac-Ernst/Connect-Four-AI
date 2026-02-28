@@ -32,7 +32,7 @@ Follow these steps to compile the engine and spin up the web application on your
 Download this project to your local machine and navigate into the folder.
 
 `git clone [https://github.com/YOUR_USERNAME/ConnectFourAI.git](https://github.com/YOUR_USERNAME/ConnectFourAI.git)`
-cd ConnectFourAI
+`cd ConnectFourAI`
 
 Step 2: Compile the C++ Engine
 
